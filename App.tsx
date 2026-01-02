@@ -54,16 +54,13 @@ const App: React.FC = () => {
   const handleUploadImage = async (newImg: PropertyImage) => {
     try {
       await saveImage(newImg);
-      // IndexedDB 저장 후 상태 즉시 업데이트
       setImages(prev => {
         const index = prev.findIndex(img => img.id === newImg.id);
         if (index !== -1) {
-          // 기존 항목 교체 (수정 모드)
           const updated = [...prev];
           updated[index] = newImg;
           return updated;
         }
-        // 신규 항목 추가 (업로드 모드)
         return [newImg, ...prev];
       });
       return true;
@@ -74,12 +71,10 @@ const App: React.FC = () => {
     }
   };
 
-  // 이미지 완전 삭제 처리
   const handleDeleteImage = async (id: string) => {
     if (!confirm('이 사진을 영구적으로 삭제하시겠습니까?')) return;
     try {
       await deleteImageFromDB(id);
-      // DB 삭제 완료 후 UI에서 즉시 제거 및 선택 해제
       setImages(prev => prev.filter(img => img.id !== id));
       setSelectedImageIds(prev => prev.filter(sid => sid !== id));
     } catch (err) {
@@ -113,6 +108,50 @@ const App: React.FC = () => {
     } catch (err) {
       alert("영상 삭제 실패");
     }
+  };
+
+  // 데이터 내보내기 (.txt 파일 생성으로 모바일 호환성 확보)
+  const handleExportData = () => {
+    const data = {
+      images,
+      videos,
+      exportedAt: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(data)], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    // .txt로 저장하여 카톡에서 파일 다운로드가 원활하게 함
+    link.download = `lotte_backup_${new Date().toLocaleDateString().replace(/\./g, '')}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+    alert('데이터 백업 파일(.txt)이 생성되었습니다. 카카오톡으로 전송하여 모바일에서 사용하세요.');
+  };
+
+  // 데이터 가져오기 (.txt 파일 읽기)
+  const handleImportData = async (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content);
+        
+        if (!data.images || !data.videos) throw new Error("유효하지 않은 데이터 구조입니다.");
+
+        if (!confirm(`${data.images.length}개의 사진과 ${data.videos.length}개의 영상을 현재 기기로 가져오시겠습니까?`)) return;
+
+        // DB 순차 저장
+        for (const img of data.images) await saveImage(img);
+        for (const vid of data.videos) await saveVideo(vid);
+
+        await loadInitialData();
+        alert("모든 데이터가 성공적으로 동기화되었습니다.");
+      } catch (err) {
+        console.error("Import error:", err);
+        alert("데이터 가져오기에 실패했습니다. 올바른 백업(.txt) 파일인지 확인해주세요.");
+      }
+    };
+    reader.readAsText(file);
   };
 
   const selectedImages = useMemo(() => 
@@ -209,6 +248,8 @@ const App: React.FC = () => {
           onUploadVideo={handleUploadVideo}
           onDeleteImage={handleDeleteImage}
           onDeleteVideo={handleDeleteVideo}
+          onExport={handleExportData}
+          onImport={handleImportData}
           images={images}
           videos={videos}
         />
